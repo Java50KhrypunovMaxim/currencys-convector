@@ -8,77 +8,74 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 
 import org.json.JSONObject;
 
 public class FixerApiPerDay extends AbstractCurrencyConvertor {
-	protected String uriString = "http://data.fixer.io/api/latest?access_key=493e9e7a06eced2d550040cefc5ef719";
-	private static final String FILE_NAME = "TodayRates.txt";
+    private static final String URI_STRING = "http://data.fixer.io/api/latest?access_key=493e9e7a06eced2d550040cefc5ef719";
+    private LocalDateTime lastUpdatedTime;
 
-	public FixerApiPerDay() {
-		this.filePathStr = FILE_NAME;
-		refreshSafely();
-		rates = getRates();
-	}
+    public FixerApiPerDay() {
+        rates = getRates();
+    }
 
-	protected HashMap<String, Double> getRates() {
-		HashMap<String, Double> newRates = new HashMap<>();
-		try (BufferedReader reader = new BufferedReader(new FileReader(filePathStr))) {
-			StringBuilder contentBuilder = new StringBuilder();
-			String line;
-			while ((line = reader.readLine()) != null) {
-				contentBuilder.append(line.trim());
-			}
-			String content = contentBuilder.toString();
-			JSONObject jsonObject = new JSONObject(content);
+    public HashMap<String, Double> getRates() {
+        try {
+            HttpClient httpClient = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder(new URI(URI_STRING)).build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            String content = response.body();
+            JSONObject jsonObject = new JSONObject(content);
+            JSONObject ratesObject = jsonObject.getJSONObject("rates");
+            rates.clear(); 
+            for (String key : ratesObject.keySet()) {
+                rates.put(key, ratesObject.getDouble(key));
+            }
+            lastUpdatedTime = LocalDateTime.now().truncatedTo(ChronoUnit.HOURS);
+            System.out.println("Data refreshed at: " + lastUpdatedTime);
 
-			JSONObject ratesObject = jsonObject.getJSONObject("rates");
-			for (String key : ratesObject.keySet()) {
+        } catch (Exception e) {
+            throw new RuntimeException("Error while refreshing rates: " + e.getMessage(), e);
+        }
+        return new HashMap<>(rates);
+    }
 
-				newRates.put(key, ratesObject.getDouble(key));
-			}
+    private void refresh() {
+        if (lastUpdatedTime == null || Duration.between(lastUpdatedTime, LocalDateTime.now()).toHours() >= 24) {
+            getRates();
+        }
+    }
 
-			String date = jsonObject.getString("date");
-			System.out.println("Date of rates: " + date);
+  
 
-		} catch (Exception e) {
-			throw new RuntimeException(e);
-		}
-		return newRates;
-	}
+    @Override
+    public List<String> strongestCurrencies(int amount) {
+    	refresh();
+        return super.strongestCurrencies(amount);
+    }
 
-	@Override
-	public List<String> strongestCurrencies(int amount) {
+    @Override
+    public List<String> weakestCurrencies(int amount) {
+    	refresh();
+        return super.weakestCurrencies(amount);
+    }
 
-		return super.strongestCurrencies(amount);
-	}
+    @Override
+    public double convert(String codeFrom, String codeTo, int amount) {
+    	refresh();
+        return super.convert(codeFrom, codeTo, amount);
+    }
 
-	@Override
-	public List<String> weakestCurrencies(int amount) {
-
-		return super.weakestCurrencies(amount);
-	}
-
-	@Override
-	public double convert(String codeFrom, String codeTo, int amount) {
-
-		return super.convert(codeFrom, codeTo, amount);
-	}
-
-	private void refresh() throws Exception {
-		HttpClient httpClient = HttpClient.newHttpClient();
-		HttpRequest request = HttpRequest.newBuilder(new URI(uriString)).build();
-		HttpResponse<Path> response = httpClient.send(request, BodyHandlers.ofFile(Path.of(FILE_NAME)));
-	}
-
-	private void refreshSafely() {
-		try {
-			refresh();
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
-	}
-
+    @Override
+    public HashSet<String> getAllCodes() {
+    	refresh();
+        return super.getAllCodes();
+    }
 }
